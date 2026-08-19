@@ -16,6 +16,8 @@ option(GLFW_BUILD_TESTS "Build the GLFW test programs" OFF)
 option(GLFW_BUILD_DOCS "Build the GLFW documentation" OFF)
 option(GLFW_INSTALL "Generate installation target" OFF)
 option(GLFW_VULKAN_STATIC "Use the Vulkan loader statically linked into application" OFF)
+option(GLFW_BUILD_WAYLAND "Build Wayland support" OFF)
+option(GLFW_BUILD_X11 "Build X11 support" OFF)
 FetchContent_MakeAvailable(glfw)
 
 add_library(glfw::glfw ALIAS glfw)
