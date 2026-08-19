@@ -159,45 +159,45 @@ bool outside_points_from_rasterization_gpu(
     RequestAdapterOptions adapterOpts;
     adapterOpts.compatibleSurface = nullptr; //surface;
     Adapter adapter = instance.requestAdapter(adapterOpts);
-    SupportedLimits supportedLimits;
+    Limits supportedLimits;
     adapter.getLimits(&supportedLimits);
-    RequiredLimits requiredLimits = Default;
-    requiredLimits.limits.maxVertexAttributes = 2;
-    requiredLimits.limits.maxVertexBuffers = 1;
-    requiredLimits.limits.maxBufferSize = std::max(
+    Limits requiredLimits = Default;
+    requiredLimits.maxVertexAttributes = 2;
+    requiredLimits.maxVertexBuffers = 1;
+    requiredLimits.maxBufferSize = std::max(
         sdf_points.rows() * 4 * sizeof(float),
         res * res * sizeof(uint32_t));
-    requiredLimits.limits.maxVertexBufferArrayStride = 4 * sizeof(float);
-    requiredLimits.limits.minStorageBufferOffsetAlignment = supportedLimits.limits.minStorageBufferOffsetAlignment;
-    requiredLimits.limits.minUniformBufferOffsetAlignment = supportedLimits.limits.minUniformBufferOffsetAlignment;
-    requiredLimits.limits.maxInterStageShaderComponents = 4;
-    requiredLimits.limits.maxBindGroups = 1;
-    requiredLimits.limits.maxUniformBuffersPerShaderStage = 1;
-    requiredLimits.limits.maxUniformBufferBindingSize = 2 * sizeof(Uniforms);
-    requiredLimits.limits.maxTextureDimension1D = res;
-    requiredLimits.limits.maxTextureDimension2D = res;
-    requiredLimits.limits.maxTextureDimension3D = res;
-    requiredLimits.limits.maxTextureArrayLayers = 1;
+    requiredLimits.maxVertexBufferArrayStride = 4 * sizeof(float);
+    requiredLimits.minStorageBufferOffsetAlignment = supportedLimits.minStorageBufferOffsetAlignment;
+    requiredLimits.minUniformBufferOffsetAlignment = supportedLimits.minUniformBufferOffsetAlignment;
+    requiredLimits.maxInterStageShaderVariables = 4;
+    requiredLimits.maxBindGroups = 1;
+    requiredLimits.maxUniformBuffersPerShaderStage = 1;
+    requiredLimits.maxUniformBufferBindingSize = 2 * sizeof(Uniforms);
+    requiredLimits.maxTextureDimension1D = res;
+    requiredLimits.maxTextureDimension2D = res;
+    requiredLimits.maxTextureDimension3D = res;
+    requiredLimits.maxTextureArrayLayers = 1;
     DeviceDescriptor deviceDesc;
-    deviceDesc.label = "Device";
-    deviceDesc.requiredFeaturesCount = 0;
+    deviceDesc.label = StringView("Device");
+    deviceDesc.requiredFeatureCount = 0;
     deviceDesc.requiredLimits = &requiredLimits;
-    deviceDesc.defaultQueue.label = "Queue";
+    deviceDesc.defaultQueue.label = StringView("Queue");
+    deviceDesc.uncapturedErrorCallbackInfo.callback = [](WGPUDevice const*,
+        WGPUErrorType type, WGPUStringView message, void*, void*) {
+        std::cout << "Device error " << type;
+        if(message.data) {
+            std::cout << " (" << StringView(message) << ")" << std::endl;
+        }
+    };
     Device device = adapter.requestDevice(deviceDesc);
     Queue queue = device.getQueue();
-    wgpuDeviceSetUncapturedErrorCallback(device, [](WGPUErrorType type,
-        char const* message, void*) {
-        std::cout << "Device error " << type;
-        if(message) {
-            std::cout << " (" << message << ")" << std::endl;
-        }
-    }, nullptr);
     TextureDescriptor textureDesc;
     textureDesc.dimension = TextureDimension::_2D;
     textureDesc.format = TextureFormat::RGBA8Unorm;
     textureDesc.sampleCount = 1;
     textureDesc.mipLevelCount = 1;
-    textureDesc.label = "Texture";
+    textureDesc.label = StringView("Texture");
     textureDesc.usage = TextureUsage::CopySrc | TextureUsage::RenderAttachment;
     textureDesc.nextInChain = nullptr;
     textureDesc.size = {
@@ -223,13 +223,11 @@ bool outside_points_from_rasterization_gpu(
     // swapChainDesc.presentMode = PresentMode::Fifo;
     // SwapChain swapChain = device.createSwapChain(surface, swapChainDesc);
     ShaderModuleDescriptor shaderDesc;
-    shaderDesc.hintCount = 0;
-    shaderDesc.hints = nullptr;
-    ShaderModuleWGSLDescriptor shaderCodeDesc;
+    ShaderSourceWGSL shaderCodeDesc;
     shaderCodeDesc.chain.next = nullptr;
-    shaderCodeDesc.chain.sType = SType::ShaderModuleWGSLDescriptor;
+    shaderCodeDesc.chain.sType = SType::ShaderSourceWGSL;
     shaderDesc.nextInChain = &shaderCodeDesc.chain;
-    shaderCodeDesc.code = shader_src;
+    shaderCodeDesc.code = StringView(shader_src);
     ShaderModule shaderModule = device.createShaderModule(shaderDesc);
     RenderPipelineDescriptor pipelineDesc;
     std::vector<VertexAttribute> vertexAttrib(2);
@@ -247,7 +245,7 @@ bool outside_points_from_rasterization_gpu(
     pipelineDesc.vertex.bufferCount = 1;
     pipelineDesc.vertex.buffers = &vertexBufferLayout;
     pipelineDesc.vertex.module = shaderModule;
-    pipelineDesc.vertex.entryPoint = "vs_main";
+    pipelineDesc.vertex.entryPoint = StringView("vs_main");
     pipelineDesc.vertex.constantCount = 0;
     pipelineDesc.vertex.constants = nullptr;
     pipelineDesc.primitive.topology = PrimitiveTopology::TriangleList;
@@ -257,7 +255,7 @@ bool outside_points_from_rasterization_gpu(
     FragmentState fragmentState;
     pipelineDesc.fragment = &fragmentState;
     fragmentState.module = shaderModule;
-    fragmentState.entryPoint = "fs_main";
+    fragmentState.entryPoint = StringView("fs_main");
     fragmentState.constantCount = 0;
     fragmentState.constants = nullptr;
     BlendState blendState;
@@ -276,7 +274,12 @@ bool outside_points_from_rasterization_gpu(
     pipelineDesc.multisample.count = 1;
     pipelineDesc.multisample.mask = ~0u;
     pipelineDesc.multisample.alphaToCoverageEnabled = false;
-    BindGroupLayoutEntry bindingLayout = Default;
+    // Not "= Default": this webgpu.hpp's BindGroupLayoutEntry::setDefault()
+    // marks the buffer/sampler/texture/storageTexture sub-structs as
+    // "Undefined" rather than "BindingNotUsed", which wgpu-native does not
+    // treat as unused, causing binding-type resolution to pick the wrong
+    // one. A zero-initialized entry correctly marks all four as unused.
+    BindGroupLayoutEntry bindingLayout;
     bindingLayout.binding = 0;
     bindingLayout.visibility = ShaderStage::Vertex | ShaderStage::Fragment;
     bindingLayout.buffer.type = BufferBindingType::Uniform;
@@ -313,13 +316,13 @@ bool outside_points_from_rasterization_gpu(
         sphere_data.push_back(sphere_radii(i)*2.*raster_shrink);
     }
     BufferDescriptor bufferDesc;
-    bufferDesc.label = "Input buffer";
+    bufferDesc.label = StringView("Input buffer");
     bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
     bufferDesc.size = sphere_data.size() * sizeof(float);
     bufferDesc.mappedAtCreation = false;
     Buffer input_buffer = device.createBuffer(bufferDesc);
     queue.writeBuffer(input_buffer, 0, sphere_data.data(), bufferDesc.size);
-    bufferDesc.label = "Uniform buffer";
+    bufferDesc.label = StringView("Uniform buffer");
     bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
     bufferDesc.size = sizeof(Uniforms);
     bufferDesc.mappedAtCreation = false;
@@ -330,7 +333,7 @@ bool outside_points_from_rasterization_gpu(
     uniforms.z = 0.;
     uniforms.pass = 0;
     queue.writeBuffer(uniform_buffer, 0, &uniforms, sizeof(Uniforms));
-    bufferDesc.label = "Output buffer";
+    bufferDesc.label = StringView("Output buffer");
     bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::MapRead;
     uint32_t out_buffer_size = sizeof(uint32_t) * res * res;
     bufferDesc.size = out_buffer_size;
@@ -363,11 +366,12 @@ bool outside_points_from_rasterization_gpu(
 
         //Draw
         CommandEncoderDescriptor commandEncoderDesc;
-        commandEncoderDesc.label = "Command Encoder";
+        commandEncoderDesc.label = StringView("Command Encoder");
         CommandEncoder encoder = device.createCommandEncoder(commandEncoderDesc);
         RenderPassDescriptor renderPassDesc;
         WGPURenderPassColorAttachment renderPassColorAttachment = {};
         renderPassColorAttachment.view = textureView;
+        renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
         renderPassColorAttachment.resolveTarget = nullptr;
         if(pass==0) {
             renderPassColorAttachment.loadOp = LoadOp::Clear;
@@ -383,7 +387,6 @@ bool outside_points_from_rasterization_gpu(
         renderPassDesc.colorAttachmentCount = 1;
         renderPassDesc.colorAttachments = &renderPassColorAttachment;
         renderPassDesc.depthStencilAttachment = nullptr;
-        renderPassDesc.timestampWriteCount = 0;
         renderPassDesc.timestampWrites = nullptr;
         RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
         renderPass.setPipeline(pipeline);
@@ -391,9 +394,9 @@ bool outside_points_from_rasterization_gpu(
             sphere_data.size()*sizeof(float));
         renderPass.setBindGroup(0, bind_group, 0, nullptr);
         renderPass.draw(6, sphere_data.size()/4, 0, 0);
-        renderPass.end();   
+        renderPass.end();
         CommandBufferDescriptor cmdBufferDescriptor;
-        cmdBufferDescriptor.label = "Command buffer";
+        cmdBufferDescriptor.label = StringView("Command buffer");
         CommandBuffer command = encoder.finish(cmdBufferDescriptor);
         queue.submit(command);
     };
@@ -402,18 +405,15 @@ bool outside_points_from_rasterization_gpu(
     const auto read_from_texture = [&] (const float z) {
         // Copy from texture to buffer
         CommandEncoderDescriptor commandEncoderDesc;
-        commandEncoderDesc.label = "Command Encoder";
+        commandEncoderDesc.label = StringView("Command Encoder");
         CommandEncoder encoder = device.createCommandEncoder(commandEncoderDesc);
-        ImageCopyTexture source;
-        source.nextInChain = nullptr;
+        TexelCopyTextureInfo source;
         source.texture = texture;
         source.mipLevel = 0;
         source.origin = {0, 0, 0};
         source.aspect = TextureAspect::All;
-        ImageCopyBuffer destination;
-        destination.nextInChain = nullptr;
-        TextureDataLayout textureDataLayout;
-        textureDataLayout.nextInChain = nullptr;
+        TexelCopyBufferInfo destination;
+        TexelCopyBufferLayout textureDataLayout;
         textureDataLayout.offset = 0;
         textureDataLayout.bytesPerRow = sizeof(uint32_t) * res;
         textureDataLayout.rowsPerImage = res;
@@ -421,7 +421,7 @@ bool outside_points_from_rasterization_gpu(
         destination.buffer = output_buffer;
         encoder.copyTextureToBuffer(source, destination, textureDesc.size);
         CommandBufferDescriptor cmdBufferDescriptor;
-        cmdBufferDescriptor.label = "Command buffer";
+        cmdBufferDescriptor.label = StringView("Command buffer");
         CommandBuffer command = encoder.finish(cmdBufferDescriptor);
         queue.submit(command);
 
@@ -433,11 +433,12 @@ bool outside_points_from_rasterization_gpu(
             float z;
             std::vector<Vecd>* points;
         };
-        auto on_buffer_mapped = [](WGPUBufferMapAsyncStatus status, void* cv) {
-            if(status != BufferMapAsyncStatus::Success) {
+        auto on_buffer_mapped = [](WGPUMapAsyncStatus status, WGPUStringView,
+            void* userdata1, void*) {
+            if(status != MapAsyncStatus::Success) {
                 return;
             }
-            Context* c = reinterpret_cast<Context*>(cv);
+            Context* c = reinterpret_cast<Context*>(userdata1);
             uint32_t* buffer_data =
             (uint32_t*) c->buffer.getConstMappedRange(0, c->buffer_size);
             std::vector<Vecd>& points = *(c->points);
@@ -464,8 +465,12 @@ bool outside_points_from_rasterization_gpu(
             c->buffer.unmap();
         };
         Context c = {output_buffer, out_buffer_size, res, z, &points};
-        wgpuBufferMapAsync(output_buffer, MapMode::Read, 0, out_buffer_size,
-            on_buffer_mapped, (void*)&c);
+        BufferMapCallbackInfo mapCallbackInfo;
+        mapCallbackInfo.mode = CallbackMode::AllowProcessEvents;
+        mapCallbackInfo.callback = on_buffer_mapped;
+        mapCallbackInfo.userdata1 = (void*)&c;
+        mapCallbackInfo.userdata2 = nullptr;
+        output_buffer.mapAsync(MapMode::Read, 0, out_buffer_size, mapCallbackInfo);
         wgpuDevicePoll(device, true, nullptr);
     };
 

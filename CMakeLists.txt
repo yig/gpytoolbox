@@ -34,6 +34,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
 endif()
 
 
+# Include a newer GLFW than the one libigl pins, since glfw3webgpu below
+# requires glfwGetPlatform() which predates libigl's pinned commit. Declaring
+# the glfw::glfw target here first makes libigl's own glfw recipe a no-op.
+include(glfw)
+
 # Include libigl
 option(LIBIGL_COPYLEFT_CGAL "Use CGAL"          ON)
 option(LIBIGL_EMBREE "Build target igl::embree" ON)
